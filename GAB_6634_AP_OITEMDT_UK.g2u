@@ -1,0 +1,123 @@
+﻿Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+V.Local.bUpdate.Declare
+V.Local.dDueDate.Declare(Date)
+V.Local.dInvoiceDate.Declare(Date)
+V.Local.dMonthEnd.Declare(Date)
+V.Local.i1.Declare
+V.Local.iD.Declare
+V.Local.iDays.Declare
+V.Local.sDueDate.Declare
+V.Local.sFilter.Declare
+V.Local.sInvoiceDate.Declare
+V.Local.sMessage.Declare
+V.Local.sName.Declare
+V.Local.sRet.Declare
+V.Local.sSQL.Declare
+V.Local.bExist.Declare
+V.Local.sInvoice.Declare
+V.Local.sVendor.Declare
+
+F.Intrinsic.UI.InvokeWaitDialog("Scanning AP Open Items table","AP Open Item Due Date Update [APAC]")
+
+F.ODBC.Connection!Conx.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+
+F.ODBC.Connection!conx.TableExists("INA_AP_OITEMDT",V.Local.bExist)
+F.Intrinsic.Control.If(V.Local.bExist,=,False)
+	F.ODBC.Connection!conx.Execute("CREATE TABLE INA_AP_OITEMDT(VENDOR CHAR(6), INVOICE CHAR(15), DATE_INVOICE DATE, DATE_DUE_ORIGINAL DATE, DATE_DUE_NEW DATE, PRIMARY KEY (VENDOR,INVOICE,DATE_INVOICE));")
+F.Intrinsic.Control.EndIf
+
+V.Local.sSql.Set("Select Vendor, Invoice, date_invoice as InvoiceDate,date_invoice_due as DueDate FROM V_AP_OPEN_ITEMS WHERE BATCH_CODE='10'")
+F.Data.DataTable.CreateFromSQL("dtVen","conx","select Vendor, name_vendor_pay as Name, discount_days as Days from v_vendor_pay_to where rtrim(vendor) <> ''",True)
+F.Data.DataTable.CreateFromSQL("dtAPOI","Conx",V.Local.sSQL,True)
+
+V.Local.bUpdate.Set(False)
+F.Intrinsic.Control.For(V.Local.i1,0,V.DataTable.dtAPOI.RowCount--,1)
+	'Get payment days
+	F.Intrinsic.String.Build("vendor = '{0}'",V.DataTable.dtAPOI(V.Local.i1).Vendor!FieldValTrim,V.Local.sFilter)
+	F.Data.DataTable.Select("dtVen",V.Local.sFilter,V.Local.sRet)
+	F.Intrinsic.Control.If(V.Local.sRet,<>,"***NORETURN***")
+		V.Local.iDays.Set(V.DataTable.dtVen(V.Local.sRet).Days!FieldValLong)
+		F.Intrinsic.Date.Day(V.DataTable.dtAPOI(V.Local.i1).InvoiceDate!FieldVal,V.Local.iD)
+		F.Intrinsic.Control.If(V.Local.iDays,=,30)
+			V.Local.dInvoiceDate.Set(V.DataTable.dtAPOI(V.Local.i1).InvoiceDate!FieldVal)
+			V.Local.bUpdate.Set(True)
+		F.Intrinsic.Control.ElseIf(V.Local.iDays,=,60)
+			F.Intrinsic.Date.DateAdd("M",1,V.DataTable.dtAPOI(V.Local.i1).InvoiceDate!FieldVal,V.Local.dInvoiceDate)
+			V.Local.bUpdate.Set(True)
+		F.Intrinsic.Control.ElseIf(V.Local.iDays,=,15)
+			V.Local.dInvoiceDate.Set(V.DataTable.dtAPOI(V.Local.i1).InvoiceDate!FieldVal)
+			V.Local.bUpdate.Set(True)
+		F.Intrinsic.Control.ElseIf(V.Local.iDays,=,20)
+			V.Local.dInvoiceDate.Set(V.DataTable.dtAPOI(V.Local.i1).InvoiceDate!FieldVal)
+			V.Local.bUpdate.Set(True)	
+		F.Intrinsic.Control.ElseIf(V.Local.iDays,=,45)
+			F.Intrinsic.Date.DateAdd("M",1,V.DataTable.dtAPOI(V.Local.i1).InvoiceDate!FieldVal,V.Local.dInvoiceDate)
+			V.Local.bUpdate.Set(True)	
+		F.Intrinsic.Control.Else
+			V.Local.bUpdate.Set(False)
+		F.Intrinsic.Control.EndIf
+		
+		F.Intrinsic.Control.If(V.Local.bUpdate,=,True)
+			'Date is between 1 and 28, change it to next month right away
+			F.Intrinsic.Control.If(V.Local.iD,<=,28)
+				F.Intrinsic.Date.DateAdd("M",1,V.Local.dInvoiceDate,V.Local.dDueDate)
+			'Or else add 5 days to go to the next month
+			F.Intrinsic.Control.Else
+				F.Intrinsic.Date.DateAdd("D",5,V.Local.dInvoiceDate,V.Local.dDueDate)
+			F.Intrinsic.Control.EndIf
+			F.Intrinsic.Date.EndOfMonth(V.Local.dDueDate,V.Local.dDueDate)
+			
+			F.Intrinsic.Control.If(V.Local.iDays,=,15)
+				F.Intrinsic.Date.BeginningOfMonth(V.Local.dDueDate,V.Local.dDueDate)
+				F.Intrinsic.Date.DateAdd("D",14,V.Local.dDueDate,V.Local.dDueDate)
+			F.Intrinsic.Control.ElseIf(V.Local.iDays,=,20)
+				F.Intrinsic.Date.BeginningOfMonth(V.Local.dDueDate,V.Local.dDueDate)
+				F.Intrinsic.Date.DateAdd("D",19,V.Local.dDueDate,V.Local.dDueDate)	
+			F.Intrinsic.Control.ElseIf(V.Local.iDays,=,45)
+				F.Intrinsic.Date.BeginningOfMonth(V.Local.dDueDate,V.Local.dDueDate)
+				F.Intrinsic.Date.DateAdd("D",14,V.Local.dDueDate,V.Local.dDueDate)
+			F.Intrinsic.Control.EndIf
+			
+'			F.Intrinsic.Debug.ShowCallerInfo
+			
+			'Update custom tables
+			V.Local.sInvoice.Set(V.DataTable.dtAPOI(V.Local.i1).Invoice!FieldValTrim)
+			
+			F.Intrinsic.String.Build("select * from INA_AP_OITEMDT where vendor = '{0}' and invoice = '{1}' and date_invoice = '{2}'",V.DataTable.dtAPOI(V.Local.i1).Vendor!FieldValTrim,V.Local.sInvoice.PSQLFriendly,V.DataTable.dtAPOI(V.Local.i1).InvoiceDate!FieldValPervasiveDate,V.Local.sSQL)
+			F.ODBC.Connection!Conx.OpenLocalRecordsetRO("rst",V.Local.sSQL)
+			F.Intrinsic.Control.If(V.ODBC.Conx!rst.EOF,=,True)
+				F.Intrinsic.String.Format(V.DataTable.dtAPOI(V.Local.i1).InvoiceDate!FieldVal,"DD MMM YYYY",V.Local.sInvoiceDate)
+				F.Intrinsic.String.Build("Updating due date for{0}Vendor: {1}{0}Invoice No.: {2}{0}Invoice date: {3}",V.Ambient.NewLine,V.DataTable.dtVen(V.Local.sRet).Name!FieldValTrim,V.Local.sInvoice.PSQLFriendly,V.Local.sInvoiceDate.Trim,V.Local.sMessage)
+				F.Intrinsic.UI.ChangeWaitStatus(V.Local.sMessage)
+				F.Intrinsic.String.Build("insert into INA_AP_OITEMDT(vendor,invoice,date_invoice,date_due_original,date_due_new) values('{0}','{1}','{2}','{3}','{4}')",V.DataTable.dtAPOI(V.Local.i1).Vendor!FieldValTrim,V.Local.sInvoice.PSQLFriendly,V.DataTable.dtAPOI(V.Local.i1).InvoiceDate!FieldValPervasiveDate,V.DataTable.dtAPOI(V.Local.i1).DueDate!FieldValPervasiveDate,V.Local.dDueDate.PervasiveDate,V.Local.sSQL)
+				F.ODBC.Connection!Conx.Execute(V.Local.sSQL)
+				'Update AP_OPEN_ITEMS
+				F.Intrinsic.String.Format(V.Local.dDueDate,"MMDDYY",V.Local.sDueDate)
+				F.Intrinsic.String.Format(V.DataTable.dtAPOI(V.Local.i1).InvoiceDate!FieldVal,"MMDDYY",V.Local.sInvoiceDate)
+				F.Intrinsic.String.Build("update ap_open_items set date_invoice_due = '{3}' where vendor = '{0}' and invoice = '{1}' and date_invoice = '{2}' and BATCH_CODE='10'",V.DataTable.dtAPOI(V.Local.i1).Vendor!FieldValTrim,V.Local.sInvoice.PSQLFriendly,V.Local.sInvoiceDate.Trim,V.Local.sDueDate.Trim,V.Local.sSQL)
+				F.ODBC.Connection!Conx.Execute(V.Local.sSQL)
+			F.Intrinsic.Control.EndIf
+			F.ODBC.Conx!rst.Close
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.Next(V.Local.i1)
+
+F.Data.DataTable.Close("dtAPOI")
+F.Data.DataTable.Close("dtVen")
+
+F.Intrinsic.UI.CloseWaitDialog
+
+F.ODBC.Connection!Conx.Close
+F.Intrinsic.Control.End
+
+Program.Sub.Main.End
+
+Program.Sub.Comments.Start
+${$0$}$$}$$}$12:00:00 AM$}$False
+${$3$}$0$}$$}$0$}$-1$}$$}$12:00:00 AM$}$This program is used by production staff to input issue material request and the request would later be processed by warehouse staff using a different interface.
+${$5$}$2.0.0.0$}$2
+${$6$}$dyunus$}$20230804090429408$}$xZ6SHi8g7O0Qsxe6AiO2NH3PnOKQRy0T8qnusZMDoi9JOnvh2pK5GDpQQOA9VmklkpmKvwAB/30=
+Program.Sub.Comments.End
